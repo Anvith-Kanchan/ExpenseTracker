@@ -5,8 +5,11 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -25,6 +28,27 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
+
+      - name: Fix Kotlin Compose parameter syntax
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('app/src/main/java/com/anvith/expensetracker/MainActivity.kt')
+          s = p.read_text()
+          s = s.replace('Text("History", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, Modifier.padding(top = 8.dp, bottom = 12.dp))', 'Text("History", modifier = Modifier.padding(top = 8.dp, bottom = 12.dp), fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)')
+          s = s.replace('item { Text("Insights", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, Modifier.padding(top = 8.dp)) }', 'item { Text("Insights", modifier = Modifier.padding(top = 8.dp), fontSize = 28.sp, fontWeight = FontWeight.ExtraBold) }')
+          p.write_text(s)
+          PY
+          if git diff --quiet -- app/src/main/java/com/anvith/expensetracker/MainActivity.kt; then
+            echo 'No source fix needed.'
+          else
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add app/src/main/java/com/anvith/expensetracker/MainActivity.kt
+            git commit -m 'Fix Compose Text modifier syntax'
+            git push
+          fi
 
       - name: Build debug APK
         run: gradle assembleDebug --stacktrace
