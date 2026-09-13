@@ -2,6 +2,7 @@ package com.anvith.expensetracker
 
 import android.content.Context
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
@@ -85,6 +86,11 @@ private fun save(c: Context, x: List<Expense>) {
 
 private fun getBudget(c: Context) = c.getSharedPreferences(PREFS, 0).getFloat("budget", 15000f).toDouble()
 private fun setBudget(c: Context, v: Double) = c.getSharedPreferences(PREFS, 0).edit().putFloat("budget", v.toFloat()).apply()
+private fun backupUrl(c: Context) = c.getSharedPreferences(PREFS, 0).getString("backup_url", "") ?: ""
+private fun backupToken(c: Context) = c.getSharedPreferences(PREFS, 0).getString("backup_token", "") ?: ""
+private fun autoBackup(c: Context) = c.getSharedPreferences(PREFS, 0).getBoolean("auto_backup", false)
+private fun setBackup(c: Context, url: String, token: String, enabled: Boolean) =
+    c.getSharedPreferences(PREFS, 0).edit().putString("backup_url", url.trim()).putString("backup_token", token.trim()).putBoolean("auto_backup", enabled).apply()
 private fun dateText(time: Long) = SimpleDateFormat("dd MMM", Locale.ENGLISH).format(Date(time))
 
 class MainActivity : ComponentActivity() {
@@ -141,7 +147,7 @@ private fun App(c: Context) {
                 0 -> Home(data, budget, p) { budgetDlg = true }
                 1 -> History(data, p, ::markPaid) { id -> commit(data.filterNot { it.id == id }) }
                 2 -> Insights(data, p)
-                3 -> Settings(dark, p) { dark = it }
+                3 -> Settings(c, dark, p) { dark = it }
             }
         }
 
@@ -380,7 +386,7 @@ private fun Insights(x: List<Expense>, p: PaddingValues) {
 }
 
 @Composable
-private fun Settings(dark: Boolean, p: PaddingValues, onDark: (Boolean) -> Unit) {
+private fun Settings(c: Context, dark: Boolean, p: PaddingValues, onDark: (Boolean) -> Unit) {
     Column(Modifier.fillMaxSize().padding(p).padding(20.dp)) {
         Text("Settings", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
         Spacer(Modifier.height(16.dp))
@@ -395,11 +401,30 @@ private fun Settings(dark: Boolean, p: PaddingValues, onDark: (Boolean) -> Unit)
             }
         }
         Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(20.dp))
+        Text("Automatic laptop backup", fontWeight = FontWeight.Bold)
+        Text("Copies your expenses to your Windows laptop over local Wi-Fi. No cloud account is used.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        var url by rememberSaveable { mutableStateOf(backupUrl(c)) }
+        var token by rememberSaveable { mutableStateOf(backupToken(c)) }
+        var enabled by rememberSaveable { mutableStateOf(autoBackup(c)) }
+        Spacer(Modifier.height(10.dp))
+        OutlinedTextField(url, { url = it }, label = { Text("Laptop backup URL") }, placeholder = { Text("http://192.168.1.10:8765/backup") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(token, { token = it }, label = { Text("Backup token") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("Automatic backup")
+            Switch(enabled, { enabled = it; setBackup(c, url, token, it); BackupScheduler.schedule(c) })
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = { setBackup(c, url, token, enabled); BackupScheduler.schedule(c) }) { Text("Save") }
+            OutlinedButton(onClick = { setBackup(c, url, token, enabled); Thread {
+                val ok = BackupWorker.runNow(c)
+                android.os.Handler(c.mainLooper).post { Toast.makeText(c, if (ok) "Backup complete" else "Backup failed — check laptop", Toast.LENGTH_LONG).show() }
+            }.start() }) { Text("Backup now") }
+        }
+        Spacer(Modifier.height(18.dp))
         Text("Privacy", fontWeight = FontWeight.Bold)
-        Text(
-            "Expenses stay on this device; no account or cloud sync is required.",
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        Text("Your data stays on this phone and is copied only to the Windows backup server you configure.", color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
